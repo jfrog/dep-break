@@ -43,7 +43,7 @@ const BLOCK_GH = process.argv.includes("--block-gh");
 // The npm registry and common package CDNs/mirrors are always blocked.
 const BASE_BLOCKED = [
   "registry.npmjs.org",
-  "registry.npmjs.com"
+  "registry.npmjs.com",
   "registry.yarnpkg.com",
   "unpkg.com",
   "cdn.jsdelivr.net",
