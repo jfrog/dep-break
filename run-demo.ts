@@ -196,16 +196,90 @@ function renderToolArgs(name: string, args: any): string {
   }
 }
 
+// The agent streams text and reasoning as many small delta chunks. To avoid
+// shattering a single sentence across dozens of prefixed lines, we buffer
+// consecutive chunks of the same kind and only break the line when the kind
+// changes (text <-> thinking) or another event (tool call, etc.) interrupts.
+type StreamKind = "text" | "thinking";
+let activeStream: StreamKind | null = null;
+
+// Reasoning output is hard-wrapped at 80 columns (word-wrapped) so it doesn't
+// rely on the terminal's own wrapping. Continuation lines are indented to line
+// up under the text that follows the prefix.
+const THINK_WRAP = 80;
+const THINK_PREFIX = "  (thinking) ";
+const THINK_INDENT = " ".repeat(THINK_PREFIX.length);
+let thinkCol = 0; // current column on the active reasoning line
+let thinkPending = ""; // buffered partial word not yet terminated by whitespace
+
+function emitThinkingWord(word: string) {
+  if (word.length === 0) return;
+  const indentW = THINK_PREFIX.length;
+  const hasContent = thinkCol > indentW;
+  const need = (hasContent ? 1 : 0) + word.length;
+  if (hasContent && thinkCol + need > THINK_WRAP) {
+    process.stdout.write("\n" + THINK_INDENT);
+    thinkCol = indentW;
+    process.stdout.write(word);
+    thinkCol += word.length;
+    return;
+  }
+  if (hasContent) {
+    process.stdout.write(" ");
+    thinkCol += 1;
+  }
+  process.stdout.write(word);
+  thinkCol += word.length;
+}
+
+// End the current text/thinking run with a single newline, if one is open.
+function endStreamRun() {
+  if (activeStream === null) return;
+  if (activeStream === "thinking" && thinkPending.length > 0) {
+    emitThinkingWord(thinkPending);
+    thinkPending = "";
+  }
+  process.stdout.write("\n");
+  activeStream = null;
+}
+
+function writeStream(kind: StreamKind, raw: string) {
+  if (kind === "text") {
+    if (raw.length === 0) return;
+    if (activeStream !== "text") {
+      endStreamRun();
+      activeStream = "text";
+    }
+    process.stdout.write(raw);
+    return;
+  }
+
+  // Reasoning: flatten embedded newlines to spaces, then word-wrap at 80 cols.
+  const normalized = raw.replace(/\s+/g, " ");
+  if (normalized.length === 0) return;
+  if (activeStream !== "thinking") {
+    endStreamRun();
+    process.stdout.write(THINK_PREFIX);
+    thinkCol = THINK_PREFIX.length;
+    thinkPending = "";
+    activeStream = "thinking";
+  }
+  const parts = (thinkPending + normalized).split(" ");
+  thinkPending = parts.pop() ?? ""; // last piece may be an unfinished word
+  for (const word of parts) emitThinkingWord(word);
+}
+
 // Render one streamed SDK message. Returns nothing; writes to stdout.
 function printEvent(event: any) {
   switch (event?.type) {
     case "assistant": {
       for (const block of event.message?.content ?? []) {
         if (block?.type === "text" && block.text) {
-          process.stdout.write(block.text);
+          writeStream("text", block.text);
         } else if (block?.type === "tool_use") {
+          endStreamRun();
           const args = renderToolArgs(block.name, block.input);
-          process.stdout.write(`\n  \u2192 [${block.name}] ${args}\n`);
+          process.stdout.write(`  \u2192 [${block.name}] ${args}\n`);
         }
       }
       break;
@@ -214,20 +288,23 @@ function printEvent(event: any) {
       // Top-level tool activity (with status + result). Show shell commands and
       // their outcome so the block and the pivot are visible live.
       if (event.status === "running") {
+        endStreamRun();
         const args = renderToolArgs(event.name, event.args);
-        process.stdout.write(`\n  \u2192 [${event.name}] ${args}\n`);
+        process.stdout.write(`  \u2192 [${event.name}] ${args}\n`);
       } else if (event.status === "error") {
+        endStreamRun();
         process.stdout.write(`  \u2717 [${event.name}] failed\n`);
       }
       break;
     }
     case "thinking": {
-      if (event.text) process.stdout.write(`\n  (thinking) ${event.text}\n`);
+      if (event.text) writeStream("thinking", event.text);
       break;
     }
     case "system": {
       // Runtime's init message — report the model it actually resolved to.
       if (event.subtype === "init" && event.model) {
+        endStreamRun();
         const id =
           typeof event.model === "string" ? event.model : event.model.id;
         console.error(`  [agent] model in use: ${id}`);
@@ -311,8 +388,8 @@ async function main() {
     for await (const event of run.stream()) {
       printEvent(event);
     }
+    endStreamRun();
     const result = await run.wait();
-    process.stdout.write("\n");
     console.error(`\n--- run finished: status=${result.status} ---`);
 
     if (result.status === "error") {
