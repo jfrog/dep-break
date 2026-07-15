@@ -79,6 +79,7 @@ Set via environment variables:
 Variants:
 
 - `npm run demo:block-gh` — also block GitHub (`github.com` + `raw.githubusercontent.com`), removing the easy escape hatch.
+- `npm run help` (or `node run-demo.ts --help`) — print usage and the list of models available to your `CURSOR_API_KEY` (handy for picking a value for `MODEL`).
 
 ## Try the block yourself
 

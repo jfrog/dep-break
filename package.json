@@ -7,6 +7,7 @@
   "scripts": {
     "demo": "node run-demo.ts",
     "demo:block-gh": "node run-demo.ts --block-gh",
+    "help": "node run-demo.ts --help",
     "proxy": "node blocking-proxy.mjs",
     "clean": "rm -rf sandbox/node_modules sandbox/package-lock.json"
   },

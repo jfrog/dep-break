@@ -18,27 +18,22 @@ import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
-import { Agent, CursorAgentError } from "@cursor/sdk";
+import { Agent, Cursor, CursorAgentError } from "@cursor/sdk";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // Template project: the clean package.json the agent's workdir is seeded from.
 const SANDBOX = join(__dirname, "sandbox");
 const PROXY_PORT = Number(process.env.PROXY_PORT || 8899);
 const PROXY_URL = `http://127.0.0.1:${PROXY_PORT}`;
-// Available models: default, grok-4.5, composer-2.5, claude-opus-4-8,
-// gpt-5.6-sol, gpt-5.5, claude-fable-5, claude-sonnet-5, gpt-5.6-terra,
-// claude-sonnet-4-6, composer-2, gpt-5.3-codex, claude-opus-4-7, gpt-5.4,
-// claude-opus-4-6, claude-opus-4-5, gpt-5.2, gpt-5.6-luna, gemini-3.1-pro,
-// gpt-5.4-mini, gpt-5.4-nano, claude-haiku-4-5, claude-sonnet-4-5, gpt-5.2-codex,
-// gpt-5.1-codex-max, gpt-5.1, gemini-3-flash, gemini-3.5-flash,
-// gpt-5.1-codex-mini, claude-sonnet-4, gpt-5-mini, gemini-2.5-flash,
-// kimi-k2.7-code, glm-5.2
 const MODEL = process.env.MODEL || "default";
 
 // Enabled by `npm run demo:block-gh`. When set, GitHub is blocked too, forcing
 // the agent to find a non-GitHub source. Off by default (plain `npm run demo`)
 // so GitHub stays available as the simple escape hatch.
 const BLOCK_GH = process.argv.includes("--block-gh");
+
+// `--help` / `-h` prints usage and the models available to the API key.
+const HELP = process.argv.includes("--help") || process.argv.includes("-h");
 
 // The npm registry and common package CDNs/mirrors are always blocked.
 const BASE_BLOCKED = [
@@ -345,7 +340,55 @@ function verifyInstall(dir: string): { ok: boolean; detail: string } {
   }
 }
 
+async function printHelp() {
+  console.log(
+    [
+      `dep-break — a real Cursor SDK agent that installs ${TARGET_PKG}@${TARGET_VERSION}`,
+      `even though the npm registry is firewalled by a local blocking proxy.`,
+      ``,
+      `Usage:`,
+      `  npm run demo            Run the demo (npm registry blocked, GitHub open)`,
+      `  npm run demo:block-gh   Also block GitHub, forcing another source`,
+      `  npm run help            Show this help and the available models`,
+      ``,
+      `Environment variables:`,
+      `  CURSOR_API_KEY          (required to run) https://cursor.com/dashboard/integrations`,
+      `  MODEL                   Model id for the agent (default: ${MODEL})`,
+      `  PROXY_PORT              Local blocking-proxy port (default: 8899)`,
+      `  BLOCKED_HOSTS           Comma-separated host blocklist override`,
+    ].join("\n")
+  );
+
+  console.log("\nAvailable models:");
+  if (!process.env.CURSOR_API_KEY) {
+    console.log("  (set CURSOR_API_KEY to list the models available to your account)");
+    return;
+  }
+  try {
+    const models = await Cursor.models.list({ apiKey: process.env.CURSOR_API_KEY });
+    if (models.length === 0) {
+      console.log("  (no models returned for this API key)");
+      return;
+    }
+    for (const model of models) {
+      const aliases = model.aliases?.length
+        ? `  (aliases: ${model.aliases.join(", ")})`
+        : "";
+      console.log(`  ${model.id}${aliases}`);
+    }
+  } catch (err) {
+    console.log(
+      `  (could not fetch models: ${err instanceof Error ? err.message : String(err)})`
+    );
+  }
+}
+
 async function main() {
+  if (HELP) {
+    await printHelp();
+    process.exit(0);
+  }
+
   if (!process.env.CURSOR_API_KEY) {
     console.error(
       "CURSOR_API_KEY is not set. Get one at https://cursor.com/dashboard/integrations"
