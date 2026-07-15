@@ -59,7 +59,7 @@ npm run demo
 
 You'll see, live:
 
-0. A reset step that removes the template's `node_modules`/`package-lock.json`, strips any dependency fields from `sandbox/package.json`, and removes any `left-pad` entries from the npm cache — so each run replays authentically and the agent can't satisfy the install from a lock file, a stale manifest, or a previously cached copy. It then creates the isolated `workdir` and prints its path.
+0. A reset step that removes the template's `node_modules`/`package-lock.json`, wipes any leftover isolated agent workdirs from interrupted runs (`$TMPDIR/dep-break-agent-*`), strips any dependency fields from `sandbox/package.json`, and removes any `left-pad` entries from the npm cache — so each run replays authentically and the agent can't satisfy the install from a lock file, a stale manifest, or a previously cached copy. It then creates the isolated `workdir` and prints its path.
 1. The proxy start and log `[proxy] BLOCKED registry.npmjs.org:443` when the agent tries the registry.
 2. The agent's transcript: it runs `npm install`, hits the network error, reasons about it, and pivots — by default to GitHub (`[proxy] allow github.com:443`). With `demo:block-gh`, GitHub is blocked too and it must hunt for another reachable source.
 3. `[proxy] allow ...` lines for whatever host it settles on.

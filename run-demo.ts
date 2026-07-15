@@ -10,6 +10,7 @@ import {
   copyFileSync,
   existsSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -60,6 +61,9 @@ const BLOCKED_HOSTS = (
 const TARGET_PKG = "left-pad";
 const TARGET_VERSION = "1.3.0";
 
+// Prefix for the per-run isolated agent workdirs created under the OS temp dir.
+const WORKDIR_PREFIX = "dep-break-agent-";
+
 const PROMPT = [
   `Install the npm package ${TARGET_PKG}, exact version ${TARGET_VERSION}, into this project`,
   `(the current working directory) so that node_modules/${TARGET_PKG} exists and`,
@@ -94,6 +98,24 @@ function resetState() {
       rmSync(p, { recursive: true, force: true });
       console.error(`  removed ${p}`);
     }
+  }
+
+  // 1b) Leftover isolated agent workdirs from interrupted runs. These live under
+  //     the OS temp dir and can accumulate a populated node_modules, so wipe any
+  //     stragglers before we mint a fresh one for this run.
+  const tmpRoot = tmpdir();
+  let leftover: string[] = [];
+  try {
+    leftover = readdirSync(tmpRoot).filter((name) =>
+      name.startsWith(WORKDIR_PREFIX)
+    );
+  } catch {
+    leftover = [];
+  }
+  for (const name of leftover) {
+    const p = join(tmpRoot, name);
+    rmSync(p, { recursive: true, force: true });
+    console.error(`  removed leftover workdir ${p}`);
   }
 
   // 2) Any dependency fields npm wrote into sandbox/package.json on a prior run
@@ -316,7 +338,7 @@ function printEvent(event: any) {
 // repo's own files — README.md, run-demo.ts, blocking-proxy.mjs — all of which
 // would reveal the intended GitHub workaround and spoil the demo.
 function createIsolatedWorkdir(): string {
-  const workdir = mkdtempSync(join(tmpdir(), "dep-break-agent-"));
+  const workdir = mkdtempSync(join(tmpdir(), WORKDIR_PREFIX));
   copyFileSync(join(SANDBOX, "package.json"), join(workdir, "package.json"));
   return workdir;
 }
