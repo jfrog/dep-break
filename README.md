@@ -79,6 +79,7 @@ Set via environment variables:
 Variants:
 
 - `npm run demo:block-gh` — also block GitHub (`github.com` + `raw.githubusercontent.com`), removing the easy escape hatch.
+- `npm run demo:block-off` — disable the blocking proxy entirely (control run): nothing is blocked, so the agent just does a plain `npm install` straight from the registry.
 - `npm run help` (or `node run-demo.ts --help`) — print usage and the list of models available to your `CURSOR_API_KEY` (handy for picking a value for `MODEL`).
 
 ## Try the block yourself

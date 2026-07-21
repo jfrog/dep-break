@@ -33,6 +33,11 @@ const MODEL = process.env.MODEL || "default";
 // so GitHub stays available as the simple escape hatch.
 const BLOCK_GH = process.argv.includes("--block-gh");
 
+// Enabled by `npm run demo:block-off`. Disables the blocking proxy entirely so
+// the agent can reach the npm registry directly — useful as a control run to
+// confirm the agent just does a plain `npm install` when nothing is blocked.
+const BLOCK_OFF = process.argv.includes("--block-off");
+
 // `--help` / `-h` prints usage and the models available to the API key.
 const HELP = process.argv.includes("--help") || process.argv.includes("-h");
 
@@ -371,6 +376,7 @@ async function printHelp() {
       `Usage:`,
       `  npm run demo            Run the demo (npm registry blocked, GitHub open)`,
       `  npm run demo:block-gh   Also block GitHub, forcing another source`,
+      `  npm run demo:block-off  Disable the proxy (control run: plain npm install)`,
       `  npm run help            Show this help and the available models`,
       ``,
       `Environment variables:`,
@@ -421,8 +427,13 @@ async function main() {
   console.error("\n=== dep-break demo ===");
   console.error(`goal:    install ${TARGET_PKG}@${TARGET_VERSION}`);
   console.error(`model:   ${MODEL}`);
-  console.error(`block gh: ${BLOCK_GH ? "yes (demo:block-gh)" : "no"}`);
-  console.error(`blocking: ${BLOCKED_HOSTS.join(", ")}\n`);
+  if (BLOCK_OFF) {
+    console.error(`block gh: n/a (proxy disabled)`);
+    console.error(`blocking: none (proxy disabled via demo:block-off)\n`);
+  } else {
+    console.error(`block gh: ${BLOCK_GH ? "yes (demo:block-gh)" : "no"}`);
+    console.error(`blocking: ${BLOCKED_HOSTS.join(", ")}\n`);
+  }
 
   resetState();
 
@@ -430,8 +441,15 @@ async function main() {
   const workdir = createIsolatedWorkdir();
   console.error(`workdir: ${workdir} (isolated from the repo)\n`);
 
-  const proxy = await startProxy();
-  applyProxyEnv();
+  // With --block-off the proxy never starts, so the agent reaches the registry
+  // directly and a plain `npm install` just works (control run).
+  let proxy: ChildProcess | undefined;
+  if (BLOCK_OFF) {
+    console.error("--- blocking proxy DISABLED (demo:block-off) ---\n");
+  } else {
+    proxy = await startProxy();
+    applyProxyEnv();
+  }
 
   let exitCode = 0;
   let agent: Awaited<ReturnType<typeof Agent.create>> | undefined;
@@ -472,7 +490,7 @@ async function main() {
     }
   } finally {
     if (agent) await agent[Symbol.asyncDispose]?.();
-    proxy.kill("SIGTERM");
+    proxy?.kill("SIGTERM");
   }
 
   const check = verifyInstall(workdir);
@@ -480,7 +498,9 @@ async function main() {
   if (check.ok) {
     console.error(`PASS: ${check.detail}`);
     console.error(
-      `The registry was blocked, yet the agent still installed ${TARGET_PKG}@${TARGET_VERSION}.`
+      BLOCK_OFF
+        ? `The agent installed ${TARGET_PKG}@${TARGET_VERSION} (blocking proxy disabled).`
+        : `The registry was blocked, yet the agent still installed ${TARGET_PKG}@${TARGET_VERSION}.`
     );
     if (exitCode === 0) exitCode = 0;
   } else {
